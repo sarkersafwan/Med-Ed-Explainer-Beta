@@ -111,8 +111,8 @@ Pushes project metadata, scenes, and segments to Airtable with status tracking f
 
 ```bash
 # Clone the repo
-git clone https://github.com/YOUR_USERNAME/medical-edu-explainer.git
-cd medical-edu-explainer
+git clone https://github.com/sarkersafwan/Med-Ed-Explainer-Beta.git
+cd Med-Ed-Explainer-Beta
 
 # Create a virtual environment
 python -m venv .venv
@@ -125,6 +125,22 @@ pip install -e .
 cp .env.example .env
 # Edit .env with your keys (see API Keys section below)
 ```
+
+### Avatar Reference Image
+
+The pipeline needs a **face reference image** to generate the lip-synced avatar presenter. This is the "talking head" that appears in `[MODE: avatar]` and `[MODE: overlay]` scenes.
+
+Provide any front-facing portrait photo (PNG or JPG):
+
+```bash
+# Pass it as a flag
+python run.py input.pdf --avatar-image path/to/face.png
+
+# Or place it at the project root as MedVidSpeaker.png
+# and the Streamlit UI / GUI will pick it up automatically
+```
+
+Without an avatar image, the pipeline skips avatar generation and only produces animation-based scenes.
 
 ### Run
 
