@@ -1,0 +1,32 @@
+# Environment & secrets
+.env
+.venv/
+.venv-run/
+venv/
+__pycache__/
+*.pyc
+
+# Output (generated assets)
+output/
+remotion/public/render_assets/
+remotion/public/assets/
+remotion/out/
+remotion/node_modules/
+
+# Sample data (not distributable)
+input.pdf
+MedVidSpeaker.png
+
+# Testing / caches
+.pytest_cache/
+
+# OS
+.DS_Store
+*.swp
+
+# IDE
+.vscode/
+.idea/
+
+# Streamlit
+.streamlit/
