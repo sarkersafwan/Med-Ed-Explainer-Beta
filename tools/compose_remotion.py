@@ -187,6 +187,7 @@ def compose_with_remotion(
         result = subprocess.run(
             [
                 "npx", "remotion", "render",
+                "src/index.ts",
                 "MedicalVideo",
                 str(final_path.resolve()),
                 "--props", str(props_path.resolve()),

@@ -121,12 +121,14 @@ def generate_images_from_segments(
                    f"{seg.intent or '?'}: {seg.segment_title}{ref_tag}")
 
         final_bytes: bytes | None = None
+        last_generated_bytes: bytes | None = None  # Always keep the last image even if QA fails
         last_error: Exception | None = None
         qa_attempts: list[dict[str, object]] = []
 
         for attempt in range(1, IMAGE_QA_MAX_ATTEMPTS + 1):
             try:
                 image_bytes = _generate_with_gemini(prompt, reference_images=refs)
+                last_generated_bytes = image_bytes  # Track last successful generation
                 review = _review_segment_image(seg, image_bytes, prompt)
                 if not review.get("approved", False):
                     issues_now = list(review.get("issues", []))
@@ -147,7 +149,9 @@ def generate_images_from_segments(
                 issues = list(review.get("issues", []))
                 if attempt == IMAGE_QA_MAX_ATTEMPTS or not _requires_regeneration(seg, issues):
                     safe_print(f"      [seg {seg.scene_number}.{seg.segment_index}] "
-                               f"✗ QA reject: {', '.join(issues) or 'unspecified'}")
+                               f"⚠️ QA soft-reject (keeping image): {', '.join(issues) or 'unspecified'}")
+                    # NEVER drop to black — use the last generated image even if QA didn't love it
+                    final_bytes = image_bytes
                     break
 
                 safe_print(f"      [seg {seg.scene_number}.{seg.segment_index}] "
@@ -160,6 +164,12 @@ def generate_images_from_segments(
                     break
 
         prompt_records[i]["qa_attempts"] = qa_attempts
+
+        # If QA approved or soft-rejected, we have final_bytes.
+        # If all attempts threw exceptions, fall back to the last image we got.
+        if final_bytes is None and last_generated_bytes is not None:
+            safe_print(f"    ⚠️ seg {seg.scene_number}.{seg.segment_index} using last-resort image (all QA attempts failed)")
+            final_bytes = last_generated_bytes
 
         if final_bytes is not None:
             filepath.write_bytes(final_bytes)

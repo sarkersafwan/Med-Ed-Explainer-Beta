@@ -14,7 +14,13 @@ dependencies = [
     "google-genai>=1.0.0",
     "streamlit>=1.42.0",
     "pytest>=8.3.0",
+    "fastapi>=0.110.0",
+    "uvicorn>=0.30.0",
 ]
 
 [project.scripts]
 medexplainer = "run:main"
+
+[tool.setuptools]
+py-modules = ["run", "app", "setup_airtable"]
+packages = ["tools"]

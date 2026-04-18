@@ -89,9 +89,9 @@ def compose_video(
             print(f"    Scene {scene_num}: {len(visual_clips)} visuals (no avatar)")
             _compose_scene_visuals(visual_clips, scene_clip, scene_duration, width, height, fps)
         else:
-            # Nothing — create black frame
-            print(f"    Scene {scene_num}: no assets, black frame")
-            _create_black_clip(scene_clip, scene_duration, width, height, fps)
+            # Nothing — create a dark branded frame (never pure black)
+            print(f"    Scene {scene_num}: no assets, branded placeholder")
+            _create_branded_clip(scene_clip, scene_duration, width, height, fps)
 
         if scene_clip.exists():
             scene_clips.append(scene_clip)
@@ -217,6 +217,7 @@ def _image_to_video_cinematic(
     total_frames = int(duration * fps)
     _run_ffmpeg([
         "-loop", "1",
+        "-framerate", str(fps),
         "-i", str(image),
         "-t", str(duration),
         "-vf", (
@@ -224,7 +225,8 @@ def _image_to_video_cinematic(
             f"zoompan=z='1.0+on/{total_frames}*0.15'"
             f":x='iw/2-(iw/zoom/2)+sin(on/{total_frames}*3.14)*50'"
             f":y='ih/2-(ih/zoom/2)'"
-            f":d={total_frames}:s={width}x{height}:fps={fps}"
+            f":d=1:s={width}x{height},"
+            f"tpad=stop_mode=clone:stop_duration=999"
         ),
         "-c:v", "libx264",
         "-pix_fmt", "yuv420p",
@@ -236,11 +238,12 @@ def _image_to_video_cinematic(
 def _scale_and_trim(
     input_path: Path, output: Path, duration: float, width: int, height: int
 ) -> None:
-    """Scale a video to target resolution and trim to duration."""
+    """Scale a video to target resolution, trim to duration, and freeze last frame if source is too short."""
     _run_ffmpeg([
         "-i", str(input_path),
         "-t", str(duration),
         "-vf", (
+            f"tpad=stop_mode=clone:stop_duration=999,"
             f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
             f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1"
         ),
@@ -258,6 +261,19 @@ def _create_black_clip(
     _run_ffmpeg([
         "-f", "lavfi",
         "-i", f"color=c=black:s={width}x{height}:d={duration}:r={fps}",
+        "-c:v", "libx264",
+        "-pix_fmt", "yuv420p",
+        str(output),
+    ])
+
+
+def _create_branded_clip(
+    output: Path, duration: float, width: int, height: int, fps: int
+) -> None:
+    """Create a dark-teal branded placeholder (never pure black)."""
+    _run_ffmpeg([
+        "-f", "lavfi",
+        "-i", f"color=c=0x0d1b2a:s={width}x{height}:d={duration}:r={fps}",
         "-c:v", "libx264",
         "-pix_fmt", "yuv420p",
         str(output),

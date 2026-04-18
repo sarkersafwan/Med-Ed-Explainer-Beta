@@ -4,6 +4,8 @@ import {
   Img,
   OffthreadVideo,
   useVideoConfig,
+  useCurrentFrame,
+  interpolate,
   staticFile,
 } from "remotion";
 import { Audio } from "@remotion/media";
@@ -13,6 +15,60 @@ import type { SceneData, SegmentData } from "./types";
 interface Props {
   scene: SceneData;
 }
+
+/**
+ * Ken Burns animated image — slow zoom and slight pan
+ * for cinematic visual interest on still frames.
+ */
+const KenBurnsImage: React.FC<{ src: string; durationFrames: number }> = ({
+  src,
+  durationFrames,
+}) => {
+  const frame = useCurrentFrame();
+  const progress = frame / Math.max(durationFrames, 1);
+
+  // Slow zoom from 1.0x → 1.15x
+  const scale = interpolate(progress, [0, 1], [1.0, 1.15], {
+    extrapolateRight: "clamp",
+  });
+
+  // Subtle horizontal pan: drift left-to-right
+  const translateX = interpolate(progress, [0, 1], [-1.5, 1.5], {
+    extrapolateRight: "clamp",
+  });
+
+  // Subtle vertical drift
+  const translateY = interpolate(progress, [0, 1], [0.5, -0.5], {
+    extrapolateRight: "clamp",
+  });
+
+  // Fade in at start, fade out at end for smooth transitions
+  // Guard against short segments where keyframes would overlap
+  const fadeDur = Math.min(8, Math.floor(durationFrames / 4));
+  const opacity = fadeDur > 0
+    ? interpolate(
+        frame,
+        [0, fadeDur, durationFrames - fadeDur, durationFrames],
+        [0, 1, 1, 0],
+        { extrapolateLeft: "clamp", extrapolateRight: "clamp" }
+      )
+    : 1;
+
+  return (
+    <AbsoluteFill style={{ backgroundColor: "#000" }}>
+      <Img
+        src={staticFile(src)}
+        style={{
+          width: "100%",
+          height: "100%",
+          objectFit: "cover",
+          transform: `scale(${scale}) translate(${translateX}%, ${translateY}%)`,
+          opacity,
+        }}
+      />
+    </AbsoluteFill>
+  );
+};
 
 /**
  * Render a single segment slot, looping the underlying animation clip if its
@@ -51,12 +107,7 @@ const SegmentSlot: React.FC<{ seg: SegmentData }> = ({ seg }) => {
 
   if (seg.imageFile) {
     return (
-      <AbsoluteFill style={{ backgroundColor: "#000" }}>
-        <Img
-          src={staticFile(seg.imageFile)}
-          style={{ width: "100%", height: "100%", objectFit: "cover" }}
-        />
-      </AbsoluteFill>
+      <KenBurnsImage src={seg.imageFile} durationFrames={seg.durationFrames} />
     );
   }
 

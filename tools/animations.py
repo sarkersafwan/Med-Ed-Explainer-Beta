@@ -105,11 +105,10 @@ def generate_animations_from_segments(
     def _resolve_duration(seg: Segment) -> str:
         if duration in ("5", "10"):
             return duration
-        # Auto mode: map segment narration budget to Kling's two supported
-        # clip lengths. Anything under ~5.5 seconds of narration time is
-        # better served by a tight 5-second clip; longer dwell beats use 10.
-        budget = seg.duration_seconds or 5.0
-        return "10" if budget >= 5.5 else "5"
+        # auto mode: always clamp to 5s to save KIE credits, exclusively relying
+        # on our FFmpeg `tpad` integration to securely freeze-frame the clip 
+        # if the narration naturally breaches past 5 seconds!
+        return "5"
     api_key = os.environ.get("KIE_API_KEY", "")
     if not api_key:
         raise ValueError("KIE_API_KEY not set in environment")
@@ -158,8 +157,9 @@ def generate_animations_from_segments(
             )
         except RuntimeError as e:
             # Auto-retry once with an even more aggressively sanitized prompt
-            # if Kling rejected on NSFW grounds.
-            if "nsfw" in str(e).lower():
+            # if Kling rejected on NSFW or sensitivity grounds.
+            err_str = str(e).lower()
+            if "nsfw" in err_str or "sensitive" in err_str:
                 safer_prompt = _nsfw_fallback_prompt(seg.video_prompt)[:500]
                 safe_print(f"    [{tag}] ↻ NSFW reject — retrying with sanitized prompt")
                 video_url = _create_and_poll(
@@ -310,20 +310,36 @@ def _build_motion_prompt(image: GeneratedImage) -> str:
 def _upload_image_for_url(api_key: str, file_path: str) -> str:
     """Upload a local image and return a publicly accessible URL.
 
-    KIE.ai needs image URLs, not file uploads. We upload to Wavespeed's
-    media endpoint which returns a CDN URL.
+    KIE.ai needs image URLs, not file uploads. We try Wavespeed first,
+    then fall back to fal.ai CDN upload.
     """
     if file_path.startswith("http"):
         return file_path
 
-    # Use Wavespeed's media upload (general purpose file host)
+    # Try Wavespeed's media upload first
     wavespeed_key = os.environ.get("WAVESPEED_API_KEY", "")
     if wavespeed_key:
-        from tools.avatar import upload_media
-        return upload_media(wavespeed_key, file_path)
+        try:
+            from tools.avatar import upload_media
+            return upload_media(wavespeed_key, file_path)
+        except Exception:
+            pass  # Fall through to fal.ai
+
+    # Fall back to fal.ai CDN upload
+    fal_key = os.environ.get("FAL_KEY", "")
+    if fal_key:
+        os.environ["FAL_KEY"] = fal_key  # fal_client reads from env
+        import fal_client
+        import time
+        for attempt in range(4):
+            try:
+                return fal_client.upload_file(file_path)
+            except Exception as e:
+                if attempt == 3: raise
+                time.sleep(2 ** attempt)
 
     raise RuntimeError(
-        "Cannot upload image for KIE.ai — WAVESPEED_API_KEY needed for file hosting"
+        "Cannot upload image for KIE.ai — set WAVESPEED_API_KEY or FAL_KEY for file hosting"
     )
 
 
