@@ -155,6 +155,21 @@ def upload_media(api_key: str, file_path: str) -> str:
     if response is None or response.status_code != 200:
         status = response.status_code if response is not None else "no-response"
         body = response.text[:300] if response is not None else str(last_err)
+        
+        # FAL Fallback directly in upload
+        fal_key = os.environ.get("FAL_KEY", "")
+        if fal_key:
+            safe_print(f"      ↻ Wavespeed upload failed ({status}). Falling back to fal.ai CDN...")
+            os.environ["FAL_KEY"] = fal_key
+            import fal_client
+            import time
+            for attempt in range(4):
+                try:
+                    return fal_client.upload_file(file_path)
+                except Exception as e:
+                    if attempt == 3: raise
+                    time.sleep(2 ** attempt)
+            
         raise RuntimeError(f"Upload failed ({status}): {body}")
 
     data = response.json()
@@ -189,65 +204,88 @@ def _create_and_poll(
     """Submit an InfiniteTalk job and poll until complete. Returns video URL."""
     headers = {"Authorization": f"Bearer {api_key}"}
 
-    # Submit job — use infinitetalk-fast for better lip sync
-    response = httpx.post(
-        f"{WAVESPEED_BASE}/wavespeed-ai/infinitetalk",
-        headers=headers,
-        json={
-            "audio": audio_url,
-            "image": image_url,
-            "prompt": prompt,
-            "resolution": resolution,
-        },
-        timeout=60.0,
-    )
-
-    if response.status_code != 200:
-        raise RuntimeError(
-            f"InfiniteTalk submit failed ({response.status_code}): {response.text[:300]}"
+    try:
+        # Submit job — use infinitetalk-fast for better lip sync
+        response = httpx.post(
+            f"{WAVESPEED_BASE}/wavespeed-ai/infinitetalk",
+            headers=headers,
+            json={
+                "audio": audio_url,
+                "image": image_url,
+                "prompt": prompt,
+                "resolution": resolution,
+            },
+            timeout=60.0,
         )
 
-    resp_data = response.json()
-    poll_url = resp_data["data"]["urls"]["get"]
-
-    # Poll for completion with retry on connection failures
-    for attempt in range(MAX_POLL_ATTEMPTS):
-        time.sleep(POLL_INTERVAL_SECONDS)
-
-        try:
-            poll_resp = httpx.get(
-                poll_url, headers=headers,
-                timeout=httpx.Timeout(60.0, connect=30.0),
+        if response.status_code != 200:
+            raise RuntimeError(
+                f"InfiniteTalk submit failed ({response.status_code}): {response.text[:300]}"
             )
-        except (httpx.ConnectTimeout, httpx.ReadTimeout, httpx.ConnectError) as e:
+
+        resp_data = response.json()
+        poll_url = resp_data["data"]["urls"]["get"]
+
+        # Poll for completion with retry on connection failures
+        for attempt in range(MAX_POLL_ATTEMPTS):
+            time.sleep(POLL_INTERVAL_SECONDS)
+
+            try:
+                poll_resp = httpx.get(
+                    poll_url, headers=headers,
+                    timeout=httpx.Timeout(60.0, connect=30.0),
+                )
+            except (httpx.ConnectTimeout, httpx.ReadTimeout, httpx.ConnectError) as e:
+                if attempt % 6 == 5:
+                    safe_print(f"      {scene_label} connection retry… "
+                               f"({(attempt + 1) * POLL_INTERVAL_SECONDS}s)")
+                continue
+
+            if poll_resp.status_code != 200:
+                continue
+
+            data = poll_resp.json().get("data", {})
+            status = data.get("status", "")
+
+            if status == "completed":
+                outputs = data.get("outputs", [])
+                if outputs:
+                    return outputs[0]
+                raise RuntimeError("InfiniteTalk completed but no outputs returned")
+
+            if status == "failed" or status == "error":
+                raise RuntimeError(f"InfiniteTalk job failed: {data}")
+
+            # Still processing
             if attempt % 6 == 5:
-                safe_print(f"      {scene_label} connection retry… "
+                safe_print(f"      {scene_label} still processing… "
                            f"({(attempt + 1) * POLL_INTERVAL_SECONDS}s)")
-            continue
+        
+        raise TimeoutError(f"InfiniteTalk timed out")
 
-        if poll_resp.status_code != 200:
-            continue
-
-        data = poll_resp.json().get("data", {})
-        status = data.get("status", "")
-
-        if status == "completed":
-            outputs = data.get("outputs", [])
-            if outputs:
-                return outputs[0]
-            raise RuntimeError("InfiniteTalk completed but no outputs returned")
-
-        if status == "failed" or status == "error":
-            raise RuntimeError(f"InfiniteTalk job failed: {data}")
-
-        # Still processing
-        if attempt % 6 == 5:
-            safe_print(f"      {scene_label} still processing… "
-                       f"({(attempt + 1) * POLL_INTERVAL_SECONDS}s)")
-
-    raise TimeoutError(
-        f"InfiniteTalk job timed out after {MAX_POLL_ATTEMPTS * POLL_INTERVAL_SECONDS}s"
-    )
+    except Exception as e:
+        fal_key = os.environ.get("FAL_KEY", "")
+        if not fal_key:
+            raise RuntimeError(f"InfiniteTalk failed and no FAL_KEY fallback available: {e}")
+            
+        safe_print(f"      {scene_label} ↻ Wavespeed failed ({str(e)}). Falling back to fal-ai/lipsync...")
+        os.environ["FAL_KEY"] = fal_key
+        import fal_client
+        
+        # Subscribe blocks until the result is ready
+        result = fal_client.subscribe(
+            "fal-ai/lipsync",
+            arguments={
+                "audio_url": audio_url,
+                "image_url": image_url
+            }
+        )
+        # fal-ai/lipsync returns {"video": {"url": "..."}} or {"url": "..."}
+        if "video" in result and "url" in result["video"]:
+            return result["video"]["url"]
+        if "url" in result:
+            return result["url"]
+        raise RuntimeError(f"FAL lipsync returned unexpected format: {result}")
 
 
 def _download_file(url: str, filepath: Path) -> None:

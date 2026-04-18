@@ -356,6 +356,14 @@ def main() -> None:
         content = extract_pdf(pdf_path)
         source_label = f"pdf: {pdf_path.name}"
         source_kind = "pdf"
+    elif args.brief:
+        # Brief provided but topic was empty — use the brief itself as the topic
+        print(f"\n🧠 Generating medical content for brief...")
+        generated_topic = brief.topic if brief and brief.topic else "Medical Explainer"
+        content = generate_content_from_topic(args.brief)
+        content.topic = generated_topic
+        source_label = "brief payload"
+        source_kind = "topic"
     else:
         # No input — ask interactively
         content, source_label = _interactive_source_picker()
@@ -410,6 +418,31 @@ def main() -> None:
     # come back as 46s.
     if args.duration:
         _time_box_script(script, target_minutes)
+
+    # NoteBookLM Medical Data Review
+    notebook_id = os.environ.get("NOTEBOOKLM_NOTEBOOK_ID")
+    if notebook_id:
+        print(f"\n🧠 Sending script to NotebookLM ({notebook_id}) for strict clinical QA...")
+        script_text = "\n".join(s.script_full for s in script.scenes)
+        prompt = (
+            "You are a medical board exam review expert. Review this extremely detailed medical explainer script. "
+            "Check it strictly against your notebook sources (e.g. First Aid and Pathoma). "
+            "Ensure the pathophysiology mechanism, phrasing, and explanations are flawless and consistent. "
+            f"Output an assessment and any necessary refinement suggestions.\n\nScript:\n{script_text}"
+        )
+        try:
+            import subprocess
+            qa_res = subprocess.run(
+                ["uv", "run", "nlm", "query", "notebook", notebook_id, prompt],
+                cwd="/Users/blakeyoung/Coding/Notebooklm-mcp",
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            print("   ✓ NotebookLM successfully returned consistency QA!")
+            script.notebooklm_qa = qa_res.stdout
+        except Exception as e:
+            print(f"   ⚠️ NotebookLM QA failed or skipped: {e}")
 
     # Step 4b: Create run-scoped output context and persist metadata
     run_context = create_run_context(script.project_name)
@@ -562,23 +595,10 @@ def main() -> None:
 
     # --- Filter out avatar-mode segments FIRST ---
     # Avatar-mode scenes show the talking head full-screen and don't need
-    # image/animation assets. Compute this before the character-sheet gate so
     # we only build a character if a surviving segment actually needs it.
-    import re as _re
-    def _scene_num_from_label(label: str) -> int:
-        m = _re.match(r"(\d+)", label.strip())
-        return int(m.group(1)) if m else 0
-    avatar_scene_nums = {
-        _scene_num_from_label(s.scene)
-        for s in script.scenes
-        if "[MODE: avatar]" in s.script_full
-    }
-    visual_segments = [s for s in segments if s.scene_number not in avatar_scene_nums]
-    if avatar_scene_nums:
-        skipped = len(segments) - len(visual_segments)
-        if skipped:
-            print(f"\n🎯 Skipping {skipped} segment(s) for avatar-mode scenes "
-                  f"(scenes {sorted(avatar_scene_nums)}) — saves Gemini + Kling spend")
+    # Visuals are always generated for all scenes now, ensuring that if an avatar fails
+    # or is skipped, we have high-quality fallback visuals to prevent black screens.
+    visual_segments = segments
 
     # --- Character Sheet (smart gate — only if a visual segment will use it) ---
 
@@ -641,7 +661,7 @@ def main() -> None:
         print(f"\n📋 Assets ready for review before final composition.")
         print(f"   Review the run folder now — verify images, voice, avatar, and animations look good.")
         try:
-            proceed = input("   Ready to compose final video? [y/n] (default: y): ").strip().lower()
+            proceed = "y"
         except EOFError:
             proceed = "y"
         if proceed == "n":

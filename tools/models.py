@@ -114,6 +114,7 @@ class ProductionScript(BaseModel):
     scenes: list[ProductionScene]
     source_pdf: str = ""
     generation_model: str = ""
+    notebooklm_qa: str = ""  # Raw LLM-driven medical consistency QA payload
 
 
 # --- Phase 2: Image & Voice Models ---
