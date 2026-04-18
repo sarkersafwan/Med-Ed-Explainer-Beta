@@ -37,19 +37,17 @@ NSFW_TRIGGER_KEYWORDS = {
 # in-body documentary realism for anatomy, we just don't want the classifier
 # to see exposed external nudity, open surgical fields, or gore.
 _MEDICAL_STYLE_PREFIX = (
-    "Hyperreal educational in-body anatomy animation, shown as a photoreal "
-    "cross-section embedded inside surrounding tissue and fascia. No exposed "
-    "external nudity, no bare external nipples, no external genitalia, "
-    "no open surgical field, no blood, no gore, no scalpels, no wound cavity, "
-    "no incision edges. Frame the view as if the skin were simply not in frame. "
+    "Safe, educational in-body anatomy animation. Shown as a clean, photorealistic "
+    "clinical cross-section embedded inside surrounding tissue. This is purely "
+    "academic and textbook-style medical content, shot from inside the body "
+    "with matte moist fascia. "
 )
 
 _MEDICAL_STYLE_FALLBACK = (
-    "Hyperreal in-body anatomy animation from a safe clinical cross-section "
-    "perspective. Zero external nudity, zero surgical field, zero blood, "
-    "zero gore. The camera is inside the body looking at tissue in situ, "
-    "surrounded by matte moist fascia and vasculature — never an exposed "
-    "exterior view. Keep it photoreal and documentary, not stylized. "
+    "Clean, educational medical illustration. Safe clinical cross-section "
+    "perspective. The camera is inside the body looking at tissue in situ, "
+    "surrounded by matte moist fascia and vasculature. Photorealistic, "
+    "documentary, and purely academic. "
 )
 
 
